@@ -70,17 +70,20 @@ show_welcome() {
 # 检查管理员权限
 check_permissions() {
     if [[ $EUID -eq 0 ]]; then
-        log_error "请不要以root用户运行此脚本"
-        log_info "请使用普通用户账户运行，脚本会在需要时提示输入sudo密码"
-        exit 1
-    fi
-    
-    # 检查sudo权限
-    if ! sudo -n true 2>/dev/null; then
-        log_info "此脚本需要sudo权限来安装系统依赖"
-        log_info "请确保您的用户账户具有sudo权限"
-        echo
-        read -p "按回车键继续..."
+        log_warning "检测到root用户，将以管理员权限运行"
+        log_info "建议使用普通用户账户运行以提高安全性"
+        SUDO_CMD=""
+    else
+        log_info "检测到普通用户: $(whoami)"
+        SUDO_CMD="sudo"
+        
+        # 检查sudo权限
+        if ! sudo -n true 2>/dev/null; then
+            log_info "此脚本需要sudo权限来安装系统依赖"
+            log_info "请确保您的用户账户具有sudo权限"
+            echo
+            read -p "按回车键继续..."
+        fi
     fi
 }
 
@@ -130,7 +133,7 @@ download_file() {
         fi
     else
         log_error "未找到 curl 或 wget，无法下载文件"
-        log_info "请安装 curl 或 wget: sudo apt install curl"
+        log_info "请安装 curl 或 wget: ${SUDO_CMD:-sudo} apt install curl"
         return 1
     fi
 }
