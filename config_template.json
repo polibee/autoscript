@@ -1,0 +1,112 @@
+{
+  "_comment": "Boundless 配置文件模板",
+  "_description": "请根据实际情况修改以下配置",
+  
+  "network": {
+    "_comment": "网络配置",
+    "mainnet": {
+      "name": "Base Mainnet",
+      "rpc_url": "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_APP_ID",
+      "chain_id": 8453
+    },
+    "testnet": {
+      "name": "Base Sepolia",
+      "rpc_url": "https://base-sepolia.g.alchemy.com/v2/YOUR_ALCHEMY_APP_ID",
+      "chain_id": 84532
+    }
+  },
+  
+  "wallet": {
+    "_comment": "钱包配置 - 请确保钱包有足够的资金",
+    "private_key": "YOUR_PRIVATE_KEY_HERE",
+    "_warning": "请妥善保管私钥，不要泄露给他人"
+  },
+  
+  "prover": {
+    "_comment": "证明者配置",
+    "segment_size": 21,
+    "_segment_size_note": "段大小影响GPU内存使用，根据GPU VRAM调整",
+    "max_concurrent_proofs": 2,
+    "_concurrent_note": "最大并发证明数量，根据硬件性能调整"
+  },
+  
+  "gpu": {
+    "_comment": "GPU配置",
+    "device_ids": ["0"],
+    "_device_note": "GPU设备ID列表，使用nvidia-smi -L查看可用GPU",
+    "memory_requirements": {
+      "segment_size_20": "8GB",
+      "segment_size_21": "16GB",
+      "segment_size_22": "32GB",
+      "_note": "不同段大小对应的GPU内存需求"
+    }
+  },
+  
+  "system": {
+    "_comment": "系统配置",
+    "recommended_os": "Ubuntu 22.04 LTS",
+    "min_ram": "8GB",
+    "recommended_ram": "16GB+",
+    "storage": "50GB+ SSD"
+  },
+  
+  "monitoring": {
+    "_comment": "监控配置",
+    "log_level": "info",
+    "log_retention_days": 7,
+    "health_check_interval": 30,
+    "_interval_note": "健康检查间隔（秒）"
+  },
+  
+  "backup": {
+    "_comment": "备份配置",
+    "auto_backup": true,
+    "backup_interval_hours": 24,
+    "max_backups": 7,
+    "backup_location": "~/boundless_backups"
+  },
+  
+  "alerts": {
+    "_comment": "告警配置",
+    "enable_alerts": false,
+    "webhook_url": "",
+    "alert_conditions": {
+      "service_down": true,
+      "high_gpu_usage": true,
+      "low_balance": true,
+      "proof_failure": true
+    }
+  },
+  
+  "optimization": {
+    "_comment": "性能优化配置",
+    "tips": {
+      "gpu_memory": "根据GPU VRAM选择合适的segment_size",
+      "concurrent_proofs": "根据GPU数量和性能调整并发数",
+      "network": "使用稳定的RPC端点，推荐Alchemy",
+      "storage": "使用SSD存储提高I/O性能",
+      "cooling": "确保GPU有良好的散热"
+    }
+  },
+  
+  "troubleshooting": {
+    "_comment": "故障排除指南",
+    "common_issues": {
+      "gpu_not_detected": "检查NVIDIA驱动和Docker GPU支持",
+      "out_of_memory": "降低segment_size或减少并发数",
+      "network_error": "检查RPC URL和网络连接",
+      "permission_denied": "确保用户在docker组中",
+      "service_failed": "检查日志文件获取详细错误信息"
+    }
+  },
+  
+  "resources": {
+    "_comment": "相关资源链接",
+    "official_docs": "https://docs.boundless.xyz",
+    "discord": "https://discord.gg/boundless",
+    "explorer": "https://explorer.boundless.xyz",
+    "github": "https://github.com/boundless-xyz/boundless",
+    "author_twitter": "https://x.com/Coinowodrop",
+    "author_website": "https://coinowo.com/"
+  }
+}
