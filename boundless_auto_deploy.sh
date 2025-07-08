@@ -401,21 +401,134 @@ install_nvidia_docker() {
         return 0
     fi
     
-    # 添加NVIDIA Docker仓库
-    distribution=$(. /etc/os-release;echo $ID$VERSION_ID) \
-        && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | $SUDO_CMD gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
-        && curl -s -L https://nvidia.github.io/libnvidia-container/experimental/$distribution/libnvidia-container.list | \
-            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-            $SUDO_CMD tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    # 获取系统发行版信息
+    distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
     
-    $SUDO_CMD apt update
-    $SUDO_CMD apt install -y nvidia-container-toolkit
+    # 定义多个镜像源
+    declare -a NVIDIA_SOURCES=(
+        "https://nvidia.github.io/libnvidia-container"
+        "https://mirrors.aliyun.com/nvidia-container-toolkit"
+        "https://mirrors.tuna.tsinghua.edu.cn/nvidia-container-toolkit"
+        "https://mirrors.ustc.edu.cn/nvidia-container-toolkit"
+    )
+    
+    # 定义GPG密钥源
+    declare -a GPG_SOURCES=(
+        "https://nvidia.github.io/libnvidia-container/gpgkey"
+        "https://mirrors.aliyun.com/nvidia-container-toolkit/gpgkey"
+        "https://mirrors.tuna.tsinghua.edu.cn/nvidia-container-toolkit/gpgkey"
+        "https://mirrors.ustc.edu.cn/nvidia-container-toolkit/gpgkey"
+    )
+    
+    log_info "尝试从多个源安装 NVIDIA Container Toolkit..."
+    
+    # 尝试安装GPG密钥
+    local gpg_success=false
+    for gpg_url in "${GPG_SOURCES[@]}"; do
+        log_info "尝试从 $gpg_url 获取GPG密钥..."
+        if curl -fsSL "$gpg_url" | $SUDO_CMD gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg 2>/dev/null; then
+            log_success "GPG密钥获取成功: $gpg_url"
+            gpg_success=true
+            break
+        else
+            log_warning "GPG密钥获取失败: $gpg_url"
+        fi
+    done
+    
+    if [[ "$gpg_success" != "true" ]]; then
+        log_error "所有GPG密钥源都无法访问，尝试跳过GPG验证..."
+        # 创建一个空的GPG密钥文件以避免错误
+        $SUDO_CMD touch /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    fi
+    
+    # 尝试添加仓库源
+    local repo_success=false
+    for nvidia_url in "${NVIDIA_SOURCES[@]}"; do
+        log_info "尝试添加仓库源: $nvidia_url"
+        
+        # 构建仓库URL
+        if [[ "$nvidia_url" == *"nvidia.github.io"* ]]; then
+            repo_url="$nvidia_url/stable/deb/nvidia-container-toolkit.list"
+        else
+            repo_url="$nvidia_url/stable/deb/nvidia-container-toolkit.list"
+        fi
+        
+        # 尝试获取仓库列表
+        if curl -s -L "$repo_url" 2>/dev/null | \
+            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+            $SUDO_CMD tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null 2>&1; then
+            log_success "仓库源添加成功: $nvidia_url"
+            repo_success=true
+            break
+        else
+            log_warning "仓库源添加失败: $nvidia_url"
+        fi
+    done
+    
+    if [[ "$repo_success" != "true" ]]; then
+        log_warning "所有仓库源都无法访问，尝试手动创建仓库配置..."
+        # 手动创建基本的仓库配置
+        echo "deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/ /" | \
+            $SUDO_CMD tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
+    fi
+    
+    # 更新包列表
+    log_info "更新包列表..."
+    if ! $SUDO_CMD apt update 2>/dev/null; then
+        log_warning "包列表更新失败，继续尝试安装..."
+    fi
+    
+    # 尝试安装nvidia-container-toolkit
+    log_info "安装 nvidia-container-toolkit..."
+    if $SUDO_CMD apt install -y nvidia-container-toolkit 2>/dev/null; then
+        log_success "nvidia-container-toolkit 安装成功"
+    else
+        log_warning "通过apt安装失败，尝试其他安装方式..."
+        
+        # 尝试直接下载deb包安装
+        log_info "尝试直接下载deb包安装..."
+        local temp_dir=$(mktemp -d)
+        cd "$temp_dir"
+        
+        # 定义deb包下载源
+        declare -a DEB_SOURCES=(
+            "https://github.com/NVIDIA/nvidia-container-toolkit/releases/latest/download"
+            "https://mirrors.aliyun.com/nvidia-container-toolkit/releases/latest"
+        )
+        
+        local deb_success=false
+        for deb_url in "${DEB_SOURCES[@]}"; do
+            log_info "尝试从 $deb_url 下载deb包..."
+            if wget -q "$deb_url/nvidia-container-toolkit_1.17.8-1_amd64.deb" 2>/dev/null || \
+               curl -sL "$deb_url/nvidia-container-toolkit_1.17.8-1_amd64.deb" -o nvidia-container-toolkit_1.17.8-1_amd64.deb 2>/dev/null; then
+                if $SUDO_CMD dpkg -i nvidia-container-toolkit_1.17.8-1_amd64.deb 2>/dev/null; then
+                    log_success "deb包安装成功"
+                    deb_success=true
+                    break
+                fi
+            fi
+        done
+        
+        cd - > /dev/null
+        rm -rf "$temp_dir"
+        
+        if [[ "$deb_success" != "true" ]]; then
+            log_error "所有安装方式都失败，请手动安装 nvidia-container-toolkit"
+            log_info "您可以访问 https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html 获取帮助"
+            return 1
+        fi
+    fi
     
     # 配置Docker运行时
-    $SUDO_CMD nvidia-ctk runtime configure --runtime=docker
-    $SUDO_CMD systemctl restart docker
-    
-    log_success "NVIDIA Docker 支持安装完成"
+    log_info "配置Docker运行时..."
+    if command -v nvidia-ctk &> /dev/null; then
+        $SUDO_CMD nvidia-ctk runtime configure --runtime=docker
+        $SUDO_CMD systemctl restart docker
+        log_success "NVIDIA Docker 支持安装完成"
+    else
+        log_error "nvidia-ctk 命令未找到，安装可能未成功"
+        return 1
+    fi
 }
 
 # 安装Rust
