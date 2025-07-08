@@ -386,6 +386,21 @@ install_docker() {
     log_warning "请重新登录以使docker组权限生效"
 }
 
+# 检测包管理器类型
+detect_package_manager() {
+    if command -v apt &> /dev/null; then
+        echo "apt"
+    elif command -v dnf &> /dev/null; then
+        echo "dnf"
+    elif command -v yum &> /dev/null; then
+        echo "yum"
+    elif command -v zypper &> /dev/null; then
+        echo "zypper"
+    else
+        echo "unknown"
+    fi
+}
+
 # 安装NVIDIA Docker支持
 install_nvidia_docker() {
     log_info "安装 NVIDIA Docker 支持..."
@@ -401,16 +416,44 @@ install_nvidia_docker() {
         return 0
     fi
     
+    # 检测包管理器
+    local pkg_manager=$(detect_package_manager)
+    log_info "检测到包管理器: $pkg_manager"
+    
+    case $pkg_manager in
+        "apt")
+            install_nvidia_docker_apt
+            ;;
+        "dnf"|"yum")
+            install_nvidia_docker_dnf
+            ;;
+        "zypper")
+            install_nvidia_docker_zypper
+            ;;
+        *)
+            log_error "不支持的包管理器: $pkg_manager"
+            return 1
+            ;;
+    esac
+}
+
+# 使用apt安装NVIDIA Docker支持
+install_nvidia_docker_apt() {
+    log_info "使用apt安装 NVIDIA Container Toolkit..."
+    
     # 获取系统发行版信息
     distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
     
     # 定义多个镜像源
-    declare -a NVIDIA_SOURCES=(
-        "https://nvidia.github.io/libnvidia-container"
-        "https://mirrors.aliyun.com/nvidia-container-toolkit"
-        "https://mirrors.tuna.tsinghua.edu.cn/nvidia-container-toolkit"
-        "https://mirrors.ustc.edu.cn/nvidia-container-toolkit"
-    )
+     declare -a NVIDIA_SOURCES=(
+         "https://nvidia.github.io/libnvidia-container"
+         "https://mirrors.aliyun.com/nvidia-container-toolkit"
+         "https://mirrors.tuna.tsinghua.edu.cn/nvidia-container-toolkit"
+         "https://mirrors.ustc.edu.cn/nvidia-container-toolkit"
+     )
+     
+     # NVIDIA Container Toolkit版本
+     NVIDIA_CONTAINER_TOOLKIT_VERSION="1.17.8-1"
     
     # 定义GPG密钥源
     declare -a GPG_SOURCES=(
@@ -478,12 +521,18 @@ install_nvidia_docker() {
         log_warning "包列表更新失败，继续尝试安装..."
     fi
     
-    # 尝试安装nvidia-container-toolkit
-    log_info "安装 nvidia-container-toolkit..."
-    if $SUDO_CMD apt install -y nvidia-container-toolkit 2>/dev/null; then
-        log_success "nvidia-container-toolkit 安装成功"
-    else
-        log_warning "通过apt安装失败，尝试其他安装方式..."
+    # 尝试安装nvidia-container-toolkit完整包组合
+     log_info "安装 NVIDIA Container Toolkit 完整包组合..."
+     if $SUDO_CMD apt install -y \
+         nvidia-container-toolkit=${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+         nvidia-container-toolkit-base=${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+         libnvidia-container-tools=${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+         libnvidia-container1=${NVIDIA_CONTAINER_TOOLKIT_VERSION} 2>/dev/null; then
+         log_success "NVIDIA Container Toolkit 完整包组合安装成功"
+     elif $SUDO_CMD apt install -y nvidia-container-toolkit 2>/dev/null; then
+         log_success "nvidia-container-toolkit 基础包安装成功"
+     else
+         log_warning "通过apt安装失败，尝试其他安装方式..."
         
         # 尝试直接下载deb包安装
         log_info "尝试直接下载deb包安装..."
@@ -491,23 +540,54 @@ install_nvidia_docker() {
         cd "$temp_dir"
         
         # 定义deb包下载源
-        declare -a DEB_SOURCES=(
-            "https://github.com/NVIDIA/nvidia-container-toolkit/releases/latest/download"
-            "https://mirrors.aliyun.com/nvidia-container-toolkit/releases/latest"
-        )
-        
-        local deb_success=false
-        for deb_url in "${DEB_SOURCES[@]}"; do
-            log_info "尝试从 $deb_url 下载deb包..."
-            if wget -q "$deb_url/nvidia-container-toolkit_1.17.8-1_amd64.deb" 2>/dev/null || \
-               curl -sL "$deb_url/nvidia-container-toolkit_1.17.8-1_amd64.deb" -o nvidia-container-toolkit_1.17.8-1_amd64.deb 2>/dev/null; then
-                if $SUDO_CMD dpkg -i nvidia-container-toolkit_1.17.8-1_amd64.deb 2>/dev/null; then
-                    log_success "deb包安装成功"
-                    deb_success=true
-                    break
-                fi
-            fi
-        done
+         declare -a DEB_SOURCES=(
+             "https://github.com/NVIDIA/nvidia-container-toolkit/releases/latest/download"
+             "https://mirrors.aliyun.com/nvidia-container-toolkit/releases/latest"
+         )
+         
+         # 定义需要下载的包
+         declare -a DEB_PACKAGES=(
+             "nvidia-container-toolkit_${NVIDIA_CONTAINER_TOOLKIT_VERSION}_amd64.deb"
+             "nvidia-container-toolkit-base_${NVIDIA_CONTAINER_TOOLKIT_VERSION}_amd64.deb"
+             "libnvidia-container-tools_${NVIDIA_CONTAINER_TOOLKIT_VERSION}_amd64.deb"
+             "libnvidia-container1_${NVIDIA_CONTAINER_TOOLKIT_VERSION}_amd64.deb"
+         )
+         
+         local deb_success=false
+         for deb_url in "${DEB_SOURCES[@]}"; do
+             log_info "尝试从 $deb_url 下载完整deb包组合..."
+             local all_downloaded=true
+             
+             # 下载所有包
+             for package in "${DEB_PACKAGES[@]}"; do
+                 if ! wget -q "$deb_url/$package" 2>/dev/null && \
+                    ! curl -sL "$deb_url/$package" -o "$package" 2>/dev/null; then
+                     log_warning "无法下载 $package"
+                     all_downloaded=false
+                     break
+                 fi
+             done
+             
+             # 如果所有包都下载成功，尝试安装
+             if [[ "$all_downloaded" == "true" ]]; then
+                 if $SUDO_CMD dpkg -i *.deb 2>/dev/null; then
+                     log_success "完整deb包组合安装成功"
+                     deb_success=true
+                     break
+                 fi
+             else
+                 # 尝试只下载基础包
+                 log_info "尝试下载基础包 nvidia-container-toolkit..."
+                 if wget -q "$deb_url/nvidia-container-toolkit_${NVIDIA_CONTAINER_TOOLKIT_VERSION}_amd64.deb" 2>/dev/null || \
+                    curl -sL "$deb_url/nvidia-container-toolkit_${NVIDIA_CONTAINER_TOOLKIT_VERSION}_amd64.deb" -o "nvidia-container-toolkit_${NVIDIA_CONTAINER_TOOLKIT_VERSION}_amd64.deb" 2>/dev/null; then
+                     if $SUDO_CMD dpkg -i "nvidia-container-toolkit_${NVIDIA_CONTAINER_TOOLKIT_VERSION}_amd64.deb" 2>/dev/null; then
+                         log_success "基础deb包安装成功"
+                         deb_success=true
+                         break
+                     fi
+                 fi
+             fi
+         done
         
         cd - > /dev/null
         rm -rf "$temp_dir"
@@ -517,6 +597,116 @@ install_nvidia_docker() {
             log_info "您可以访问 https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html 获取帮助"
             return 1
         fi
+    fi
+    
+    # 配置Docker运行时
+    log_info "配置Docker运行时..."
+    if command -v nvidia-ctk &> /dev/null; then
+        $SUDO_CMD nvidia-ctk runtime configure --runtime=docker
+        $SUDO_CMD systemctl restart docker
+        log_success "NVIDIA Docker 支持安装完成"
+    else
+         log_error "nvidia-ctk 命令未找到，安装可能未成功"
+         return 1
+     fi
+}
+
+# 使用dnf/yum安装NVIDIA Docker支持
+install_nvidia_docker_dnf() {
+    log_info "使用dnf/yum安装 NVIDIA Container Toolkit..."
+    
+    # NVIDIA Container Toolkit版本
+    NVIDIA_CONTAINER_TOOLKIT_VERSION="1.17.8-1"
+    
+    # 定义多个镜像源
+    declare -a NVIDIA_RPM_SOURCES=(
+        "https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo"
+        "https://mirrors.aliyun.com/nvidia-container-toolkit/stable/rpm/nvidia-container-toolkit.repo"
+        "https://mirrors.tuna.tsinghua.edu.cn/nvidia-container-toolkit/stable/rpm/nvidia-container-toolkit.repo"
+    )
+    
+    log_info "尝试从多个源安装 NVIDIA Container Toolkit..."
+    
+    # 尝试添加仓库源
+    local repo_success=false
+    for repo_url in "${NVIDIA_RPM_SOURCES[@]}"; do
+        log_info "尝试添加仓库源: $repo_url"
+        if curl -s -L "$repo_url" | $SUDO_CMD tee /etc/yum.repos.d/nvidia-container-toolkit.repo > /dev/null 2>&1; then
+            log_success "仓库源添加成功: $repo_url"
+            repo_success=true
+            break
+        else
+            log_warning "仓库源添加失败: $repo_url"
+        fi
+    done
+    
+    if [[ "$repo_success" != "true" ]]; then
+        log_error "所有仓库源都无法访问"
+        return 1
+    fi
+    
+    # 检测使用dnf还是yum
+    local pkg_cmd="dnf"
+    if ! command -v dnf &> /dev/null; then
+        pkg_cmd="yum"
+    fi
+    
+    # 安装NVIDIA Container Toolkit
+    log_info "安装 NVIDIA Container Toolkit 完整包组合..."
+    if $SUDO_CMD $pkg_cmd install -y \
+        nvidia-container-toolkit-${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+        nvidia-container-toolkit-base-${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+        libnvidia-container-tools-${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+        libnvidia-container1-${NVIDIA_CONTAINER_TOOLKIT_VERSION} 2>/dev/null; then
+        log_success "NVIDIA Container Toolkit 完整包组合安装成功"
+    elif $SUDO_CMD $pkg_cmd install -y nvidia-container-toolkit 2>/dev/null; then
+        log_success "nvidia-container-toolkit 基础包安装成功"
+    else
+        log_error "NVIDIA Container Toolkit 安装失败"
+        return 1
+    fi
+    
+    # 配置Docker运行时
+    log_info "配置Docker运行时..."
+    if command -v nvidia-ctk &> /dev/null; then
+        $SUDO_CMD nvidia-ctk runtime configure --runtime=docker
+        $SUDO_CMD systemctl restart docker
+        log_success "NVIDIA Docker 支持安装完成"
+    else
+        log_error "nvidia-ctk 命令未找到，安装可能未成功"
+        return 1
+    fi
+}
+
+# 使用zypper安装NVIDIA Docker支持
+install_nvidia_docker_zypper() {
+    log_info "使用zypper安装 NVIDIA Container Toolkit..."
+    
+    # NVIDIA Container Toolkit版本
+    NVIDIA_CONTAINER_TOOLKIT_VERSION="1.17.8-1"
+    
+    # 添加NVIDIA仓库
+    log_info "添加NVIDIA仓库..."
+    if $SUDO_CMD zypper ar https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo 2>/dev/null; then
+        log_success "NVIDIA仓库添加成功"
+    else
+        log_error "NVIDIA仓库添加失败"
+        return 1
+    fi
+    
+    # 安装NVIDIA Container Toolkit
+    log_info "安装 NVIDIA Container Toolkit 完整包组合..."
+    if $SUDO_CMD zypper --gpg-auto-import-keys install -y \
+        nvidia-container-toolkit-${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+        nvidia-container-toolkit-base-${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+        libnvidia-container-tools-${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+        libnvidia-container1-${NVIDIA_CONTAINER_TOOLKIT_VERSION} 2>/dev/null; then
+        log_success "NVIDIA Container Toolkit 完整包组合安装成功"
+    elif $SUDO_CMD zypper --gpg-auto-import-keys install -y nvidia-container-toolkit 2>/dev/null; then
+        log_success "nvidia-container-toolkit 基础包安装成功"
+    else
+        log_error "NVIDIA Container Toolkit 安装失败"
+        return 1
     fi
     
     # 配置Docker运行时
