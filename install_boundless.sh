@@ -15,9 +15,10 @@ AUTHOR="Coinowodrop"
 WEBSITE="https://coinowo.com/"
 TWITTER="https://x.com/Coinowodrop"
 
-# 文件下载URLs
-MAIN_SCRIPT_URL="https://raw.githubusercontent.com/polibee/autoscript/main/boundless_auto_deploy.sh"
-README_URL="https://raw.githubusercontent.com/polibee/autoscript/main/README.md"
+# 本地文件路径
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE_SCRIPT="$SCRIPT_DIR/boundless_auto_deploy.sh"
+SOURCE_README="$SCRIPT_DIR/README.md"
 
 # 安装目录
 INSTALL_DIR="$HOME/boundless-scripts"
@@ -109,35 +110,6 @@ check_system_requirements() {
     log_success "系统要求检查通过"
 }
 
-# 下载文件
-download_file() {
-    local url="$1"
-    local output="$2"
-    local description="$3"
-    
-    log_info "下载 $description..."
-    
-    if command -v curl &> /dev/null; then
-        if curl -fsSL "$url" -o "$output"; then
-            log_success "$description 下载完成"
-        else
-            log_error "$description 下载失败"
-            return 1
-        fi
-    elif command -v wget &> /dev/null; then
-        if wget -q "$url" -O "$output"; then
-            log_success "$description 下载完成"
-        else
-            log_error "$description 下载失败"
-            return 1
-        fi
-    else
-        log_error "未找到 curl 或 wget，无法下载文件"
-        log_info "请安装 curl 或 wget: ${SUDO_CMD:-sudo} apt install curl"
-        return 1
-    fi
-}
-
 # 安装Boundless主函数
 install_boundless() {
     log_info "开始安装 Boundless ZK Prover..."
@@ -146,18 +118,28 @@ install_boundless() {
     log_info "创建安装目录: $INSTALL_DIR"
     mkdir -p "$INSTALL_DIR"
     
-    # 下载主脚本
-    if ! download_file "$MAIN_SCRIPT_URL" "$SCRIPT_PATH" "主安装脚本"; then
-        log_error "主脚本下载失败，请检查网络连接或URL"
+    # 检查本地主脚本是否存在
+    if [[ ! -f "$SOURCE_SCRIPT" ]]; then
+        log_error "本地主脚本不存在: $SOURCE_SCRIPT"
+        log_error "请确保在正确的目录中运行此脚本"
         exit 1
     fi
+    
+    # 复制主脚本
+    log_info "复制主安装脚本..."
+    cp "$SOURCE_SCRIPT" "$SCRIPT_PATH"
     
     # 设置执行权限
     chmod +x "$SCRIPT_PATH"
     log_success "脚本权限设置完成"
     
-    # 下载README文件
-    download_file "$README_URL" "$INSTALL_DIR/README.md" "说明文档" || log_warning "说明文档下载失败，但不影响安装"
+    # 复制README文件
+    if [[ -f "$SOURCE_README" ]]; then
+        cp "$SOURCE_README" "$INSTALL_DIR/README.md"
+        log_success "说明文档复制完成"
+    else
+        log_warning "说明文档不存在，但不影响安装"
+    fi
     
     log_success "Boundless 脚本安装完成!"
     echo
@@ -201,31 +183,6 @@ add_to_path() {
     log_success "已添加到PATH，重新登录后可直接使用 'boundless' 命令"
 }
 
-# 创建桌面快捷方式
-create_desktop_shortcut() {
-    local desktop_dir="$HOME/Desktop"
-    local shortcut_file="$desktop_dir/Boundless.desktop"
-    
-    if [[ -d "$desktop_dir" ]]; then
-        cat > "$shortcut_file" << EOF
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=Boundless ZK Prover
-Comment=Boundless ZK Prover 管理工具
-Exec=gnome-terminal -- bash -c "$SCRIPT_PATH; exec bash"
-Icon=utilities-terminal
-Terminal=false
-Categories=Development;
-EOF
-        
-        chmod +x "$shortcut_file"
-        log_success "桌面快捷方式已创建"
-    else
-        log_info "未找到桌面目录，跳过快捷方式创建"
-    fi
-}
-
 # 显示安装完成信息
 show_completion_info() {
     echo
@@ -249,57 +206,6 @@ show_completion_info() {
     echo
 }
 
-# 交互式菜单
-show_interactive_menu() {
-    while true; do
-        echo
-        echo -e "${CYAN}请选择操作:${NC}"
-        echo "1) 立即开始完整安装 (推荐)"
-        echo "2) 仅安装证明者组件"
-        echo "3) 添加到系统PATH"
-        echo "4) 创建桌面快捷方式"
-        echo "5) 查看安装说明"
-        echo "6) 退出"
-        echo
-        
-        read -p "请选择 (1-6): " choice
-        
-        case $choice in
-            1)
-                log_info "开始完整安装..."
-                "$SCRIPT_PATH" install
-                break
-                ;;
-            2)
-                log_info "开始安装证明者..."
-                "$SCRIPT_PATH" install-prover
-                break
-                ;;
-            3)
-                add_to_path
-                ;;
-            4)
-                create_desktop_shortcut
-                ;;
-            5)
-                if [[ -f "$INSTALL_DIR/README.md" ]]; then
-                    less "$INSTALL_DIR/README.md" || cat "$INSTALL_DIR/README.md"
-                else
-                    log_warning "说明文档未找到"
-                    echo -e "请访问: ${YELLOW}$WEBSITE${NC} 查看详细说明"
-                fi
-                ;;
-            6)
-                log_info "退出安装程序"
-                break
-                ;;
-            *)
-                log_error "无效选择，请输入 1-6"
-                ;;
-        esac
-    done
-}
-
 # 主函数
 main() {
     show_welcome
@@ -317,20 +223,13 @@ main() {
         add_to_path
     fi
     
-    # 询问是否创建桌面快捷方式
-    read -p "是否创建桌面快捷方式? (Y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-        create_desktop_shortcut
-    fi
-    
     show_completion_info
     
     # 询问是否立即开始安装
     read -p "是否现在开始安装 Boundless? (Y/n): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-        show_interactive_menu
+        "$SCRIPT_PATH" install
     else
         log_info "您可以稍后运行以下命令开始安装:"
         echo -e "  ${CYAN}$SCRIPT_PATH install${NC}"
