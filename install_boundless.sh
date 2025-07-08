@@ -16,8 +16,8 @@ WEBSITE="https://coinowo.com/"
 TWITTER="https://x.com/Coinowodrop"
 
 # 文件下载URLs
-MAIN_SCRIPT_URL="https://raw.githubusercontent.com/coinowo/boundless-scripts/main/boundless_auto_deploy.sh"
-README_URL="https://raw.githubusercontent.com/coinowo/boundless-scripts/main/README.md"
+MAIN_SCRIPT_URL="https://raw.githubusercontent.com/polibee/autoscript/main/boundless_auto_deploy.sh"
+README_URL="https://raw.githubusercontent.com/polibee/autoscript/main/README.md"
 
 # 安装目录
 INSTALL_DIR="$HOME/boundless-scripts"

@@ -5,7 +5,7 @@ GPU租用：https://cloud.vast.ai/?ref_id=91181
 
 这是介绍
 Boundless挖矿开始了，兄弟们！
-
+github：https://github.com/polibee/autoscript
 Boundless 
 @boundless_xyz
   节点形式为工作量证明，也就是公平挖矿，预计大毛，有条件的可以看看
