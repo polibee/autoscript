@@ -333,10 +333,10 @@ install_system_dependencies() {
     log_info "安装系统依赖..."
     
     # 更新包列表
-    sudo apt update
+    $SUDO_CMD apt update
     
     # 安装基础工具
-    sudo apt install -y \
+    $SUDO_CMD apt install -y \
         curl \
         wget \
         git \
@@ -363,24 +363,24 @@ install_docker() {
     fi
     
     # 添加Docker官方GPG密钥
-    sudo mkdir -p /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    $SUDO_CMD mkdir -p /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | $SUDO_CMD gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     
     # 添加Docker仓库
     echo \
         "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-        $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+        $(lsb_release -cs) stable" | $SUDO_CMD tee /etc/apt/sources.list.d/docker.list > /dev/null
     
     # 安装Docker
-    sudo apt update
-    sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    $SUDO_CMD apt update
+    $SUDO_CMD apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     
     # 启动Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    $SUDO_CMD systemctl start docker
+    $SUDO_CMD systemctl enable docker
     
     # 添加用户到docker组
-    sudo usermod -aG docker $USER
+    $SUDO_CMD usermod -aG docker $BOUNDLESS_USER
     
     log_success "Docker 安装完成"
     log_warning "请重新登录以使docker组权限生效"
@@ -403,17 +403,17 @@ install_nvidia_docker() {
     
     # 添加NVIDIA Docker仓库
     distribution=$(. /etc/os-release;echo $ID$VERSION_ID) \
-        && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+        && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | $SUDO_CMD gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
         && curl -s -L https://nvidia.github.io/libnvidia-container/experimental/$distribution/libnvidia-container.list | \
             sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-            sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+            $SUDO_CMD tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
     
-    sudo apt update
-    sudo apt install -y nvidia-container-toolkit
+    $SUDO_CMD apt update
+    $SUDO_CMD apt install -y nvidia-container-toolkit
     
     # 配置Docker运行时
-    sudo nvidia-ctk runtime configure --runtime=docker
-    sudo systemctl restart docker
+    $SUDO_CMD nvidia-ctk runtime configure --runtime=docker
+    $SUDO_CMD systemctl restart docker
     
     log_success "NVIDIA Docker 支持安装完成"
 }
@@ -484,7 +484,7 @@ run_boundless_setup() {
     cd "$BOUNDLESS_DIR"
     
     if [[ -f "scripts/setup.sh" ]]; then
-        sudo ./scripts/setup.sh
+        $SUDO_CMD ./scripts/setup.sh
         log_success "Boundless 安装脚本执行完成"
     else
         log_warning "未找到 Boundless 安装脚本，跳过"
@@ -1584,13 +1584,49 @@ full_install() {
     fi
 }
 
+# 检查用户权限并设置适当的命令前缀
+setup_user_environment() {
+    if [[ $EUID -eq 0 ]]; then
+        # root用户
+        log_warning "检测到root用户，将以root权限运行"
+        SUDO_CMD=""
+        USER_HOME="/root"
+        # 为了安全，创建一个普通用户来运行Docker容器
+        if ! id "boundless" &>/dev/null; then
+            log_info "创建boundless用户用于运行服务..."
+            useradd -m -s /bin/bash boundless
+            usermod -aG docker boundless 2>/dev/null || true
+        fi
+        BOUNDLESS_USER="boundless"
+    else
+        # 普通用户
+        log_info "检测到普通用户: $(whoami)"
+        SUDO_CMD="sudo"
+        USER_HOME="$HOME"
+        BOUNDLESS_USER="$(whoami)"
+        
+        # 检查sudo权限
+        if ! $SUDO_CMD -n true 2>/dev/null; then
+            log_warning "某些操作需要sudo权限，请确保当前用户有sudo权限"
+        fi
+    fi
+    
+    # 更新目录路径
+    if [[ $EUID -eq 0 ]]; then
+        BOUNDLESS_DIR="/opt/boundless"
+        LOG_DIR="/var/log/boundless"
+        CONFIG_DIR="/etc/boundless"
+    else
+        BOUNDLESS_DIR="$USER_HOME/boundless"
+        LOG_DIR="$USER_HOME/.local/share/boundless/logs"
+        CONFIG_DIR="$USER_HOME/.config/boundless"
+    fi
+}
+
 # 主函数
 main() {
-    # 检查是否以root用户运行
-    if [[ $EUID -eq 0 ]]; then
-        log_error "请不要以root用户运行此脚本"
-        exit 1
-    fi
+    # 设置用户环境
+    setup_user_environment
     
     case "${1:-help}" in
         install)
