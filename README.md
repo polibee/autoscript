@@ -11,7 +11,7 @@
 ## 🎯 一键安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/polibee/autoscript/main/install_boundless.sh | bash
+curl -fsSL https://raw.githubusercontent.com/polibee/autoscript/master/install_boundless.sh | bash
 ```
 
 > 🎉 **零配置安装**: 自动检测系统环境、安装依赖、配置GPU、设置网络，全程交互式引导！
